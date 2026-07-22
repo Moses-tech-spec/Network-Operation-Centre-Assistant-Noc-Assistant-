@@ -3,5 +3,5 @@ from pprint import pprint
 from app.ai.memory import MayaMemory
 
 pprint(
-    MayaMemory.build("kincar")
+    MayaMemory.build("Your Router Name")
 )
