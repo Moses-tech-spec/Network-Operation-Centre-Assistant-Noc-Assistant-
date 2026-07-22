@@ -4,6 +4,6 @@ from app.ai.root_cause import MayaRootCause
 
 pprint(
 
-    MayaRootCause.analyze("kincar")
+    MayaRootCause.analyze("Your router Name")
 
 )
