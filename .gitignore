@@ -1,0 +1,20 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Database (contains real customer data)
+*.db
+*.db-shm
+*.db-wal
+hyperwave.db*
+
+# Python
+__pycache__/
+*.pyc
+venv/
+*.egg-info/
+
+# OS/editor cruft
+.DS_Store
+*.swp

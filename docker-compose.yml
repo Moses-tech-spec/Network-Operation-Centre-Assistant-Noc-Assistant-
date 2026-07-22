@@ -1,0 +1,32 @@
+services:
+  network-api:
+    build: .
+    container_name: network-api
+    restart: unless-stopped
+
+    ports:
+      - "3984:8000"
+
+    volumes:
+      - .:/app
+
+    working_dir: /app
+    environment:
+      - MAYA_BEARER_TOKEN=${MAYA_BEARER_TOKEN}
+      - MAYA_API_USERNAME=${MAYA_API_USERNAME}
+      - MAYA_API_PASSWORD=${MAYA_API_PASSWORD}
+      - KINCAR_HOST=${KINCAR_HOST}
+      - KINCAR_PORT=${KINCAR_PORT}
+      - KINCAR_USERNAME=${KINCAR_USERNAME}
+      - KINCAR_PASSWORD=${KINCAR_PASSWORD}
+      - KARIOKOR_HOST=${KARIOKOR_HOST}
+      - KARIOKOR_PORT=${KARIOKOR_PORT}
+      - KARIOKOR_USERNAME=${KARIOKOR_USERNAME}
+      - KARIOKOR_PASSWORD=${KARIOKOR_PASSWORD}
+
+    networks:
+      - maya-network
+
+networks:
+  maya-network:
+    external: true
