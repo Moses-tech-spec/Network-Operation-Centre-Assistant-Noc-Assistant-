@@ -4,6 +4,6 @@ from app.ai.remediation import MayaRemediation
 
 pprint(
 
-    MayaRemediation.plan("kariokor")
+    MayaRemediation.plan("Your router Name")
 
 )
