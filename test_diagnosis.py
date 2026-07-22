@@ -6,7 +6,7 @@ pprint(
 
     MayaDiagnosis.diagnose(
 
-        "kariokor"
+        "Router Name"
 
     )
 
