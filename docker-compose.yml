@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
 
     ports:
-      - "Your desired port number"
+      - "3984:8000"
 
     volumes:
       - .:/app
@@ -15,14 +15,14 @@ services:
       - MAYA_BEARER_TOKEN=${MAYA_BEARER_TOKEN}
       - MAYA_API_USERNAME=${MAYA_API_USERNAME}
       - MAYA_API_PASSWORD=${MAYA_API_PASSWORD}
-      - Name_HOST=${Name_HOST}
-      - Name_PORT=${Name_PORT}
-      - Name_USERNAME=${Name_USERNAME}
-      - Name_PASSWORD=${Name_PASSWORD}
-      - Name_HOST=${Name_HOST}
-      - Name_PORT=${Name_PORT}
-      - Name_USERNAME=${Name_USERNAME}
-      - Name_PASSWORD=${Name_PASSWORD}
+      - KINCAR_HOST=${KINCAR_HOST}
+      - KINCAR_PORT=${KINCAR_PORT}
+      - KINCAR_USERNAME=${KINCAR_USERNAME}
+      - KINCAR_PASSWORD=${KINCAR_PASSWORD}
+      - KARIOKOR_HOST=${KARIOKOR_HOST}
+      - KARIOKOR_PORT=${KARIOKOR_PORT}
+      - KARIOKOR_USERNAME=${KARIOKOR_USERNAME}
+      - KARIOKOR_PASSWORD=${KARIOKOR_PASSWORD}
 
     networks:
       - maya-network
