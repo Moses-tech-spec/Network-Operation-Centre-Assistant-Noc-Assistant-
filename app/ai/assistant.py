@@ -19,6 +19,21 @@ from app.routers.mikrotik import (
     backup_router,
     backup_all_routers,
 )
+from app.services.config_backup import propose_firewall_rule
+from app.services.config_backup import summarize_router_config
+from app.services.config_backup import get_raw_router_config
+from app.services.config_backup import get_config_section
+from app.services.posture import (
+    _check_exposed_services,
+    _check_default_admin,
+    _check_full_group_users,
+    _check_firewall_input_chain,
+    _check_routeros_version,
+)
+from app.services.ppp_anomaly import _check_flapping, _check_mass_disconnect
+from app.services.traffic_anomaly import _check_zero_traffic, _check_spike, _distinct_interfaces
+from app.routers.mikrotik import get_logs
+from app.config import ROUTERS
 
 
 ROUTER_ALIASES = {
@@ -236,6 +251,16 @@ class MayaAssistant:
 
     @staticmethod
     def ask(question: str, history=None):
+        try:
+            return MayaAssistant._ask_inner(question, history)
+        except Exception as e:
+            return {
+                "assistant": "Maya",
+                "answer": f"Something went wrong while processing that request. The error has been logged: {str(e)}"
+            }
+
+    @staticmethod
+    def _ask_inner(question: str, history=None):
 
         original_question = question
         question = question.lower()
@@ -267,7 +292,9 @@ class MayaAssistant:
 
         route_intent_words = {
             "access", "reach", "block", "blocked",
-            "route", "routes", "unreachable", "website", "site"
+            "route", "routes", "unreachable", "website", "site",
+            "check", "working", "load", "loading", "open",
+            "visit", "down", "connect", "connecting"
         }
         has_route_intent = any(w in question for w in route_intent_words)
 
@@ -367,10 +394,13 @@ Question being asked: {original_question}
         # ------------------------------------------------------
         ip_pattern = re.search(r"\d{1,3}(?:\.\d{1,3}){3}(?:/\d{1,2})?", original_question)
 
-        if ip_pattern and ("disable" in question or "enable" in question):
+        ip_is_unblock = "unblock" in question
+        ip_is_block = (not ip_is_unblock) and ("block" in question)
+
+        if ip_pattern and ("disable" in question or "enable" in question or ip_is_block or ip_is_unblock):
 
             ip_value = ip_pattern.group(0)
-            should_disable = "disable" in question
+            should_disable = ("disable" in question) or ip_is_block
 
             try:
                 result = set_queue_state_by_ip(ip_value, disabled=should_disable)
@@ -389,6 +419,213 @@ Question being asked: {original_question}
                     "assistant": "Maya",
                     "answer": result.get("message", f"Could not find a queue matching {ip_value}.")
                 }
+
+        # ------------------------------------------------------
+        # Propose a firewall rule via GitHub PR (draft-and-approve
+        # only -- does NOT touch any router directly)
+        # ------------------------------------------------------
+        if "propose" in question and ("firewall" in question or "ssh" in question):
+
+            if not ip_pattern:
+                return {
+                    "assistant": "Maya",
+                    "answer": "I need an IP address to propose a rule for. Try: 'propose allowing 41.90.1.1 through ssh on kariokor'."
+                }
+
+            ip_value = ip_pattern.group(0)
+
+            target_router = None
+            for router in routers:
+                if router["router"].lower() in question:
+                    target_router = router["router"]
+                    break
+
+            if not target_router:
+                return {
+                    "assistant": "Maya",
+                    "answer": "Which router should this apply to? e.g. 'propose allowing 41.90.1.1 through ssh on kariokor'."
+                }
+
+            if target_router not in ROUTERS or "ssh_port" not in ROUTERS[target_router]:
+                return {
+                    "assistant": "Maya",
+                    "answer": f"I don't have an SSH port configured for '{target_router}', so I can't draft this proposal."
+                }
+
+            ssh_port = ROUTERS[target_router]["ssh_port"]
+            rule_command = (
+                f'/ip firewall filter add chain=input action=accept protocol=tcp '
+                f'dst-port={ssh_port} src-address={ip_value} '
+                f'comment=\"maya-proposed-ssh-{ip_value}\"'
+            )
+            reason = f"Requested via Maya chat: allow {ip_value} to reach SSH on {target_router}."
+
+            try:
+                result = propose_firewall_rule(target_router, rule_command, reason)
+            except Exception as e:
+                result = {"success": False, "message": str(e)}
+
+            if result.get("success"):
+                return {
+                    "assistant": "Maya",
+                    "action": "proposed",
+                    "router": target_router,
+                    "answer": f"I've drafted this as a pull request for review -- nothing has been applied yet: {result.get('pr_url')}"
+                }
+            else:
+                return {
+                    "assistant": "Maya",
+                    "answer": f"I couldn't draft that proposal: {result.get('message')}"
+                }
+
+        # ------------------------------------------------------
+        # Human-readable config summary (from the Git-backed
+        # .rsc export -- deterministic, no LLM narration)
+        # ------------------------------------------------------
+        if "config" in question and ("all" in question or "full" in question or "everything" in question or "raw" in question):
+
+            target_router = None
+            for router in routers:
+                if router["router"].lower() in question:
+                    target_router = router["router"]
+                    break
+
+            if not target_router:
+                return {
+                    "assistant": "Maya",
+                    "answer": "Which router's full config do you want? e.g. 'show me all of kariokor's config'."
+                }
+
+            try:
+                result = get_raw_router_config(target_router)
+            except Exception as e:
+                result = {"success": False, "message": str(e)}
+
+            if result.get("success"):
+                return {
+                    "assistant": "Maya",
+                    "router": target_router,
+                    "answer": result.get("content")
+                }
+            else:
+                return {
+                    "assistant": "Maya",
+                    "answer": result.get("message", f"Could not retrieve config for {target_router}.")
+                }
+
+        if "config" in question:
+
+            target_router = None
+            for router in routers:
+                if router["router"].lower() in question:
+                    target_router = router["router"]
+                    break
+
+            if not target_router:
+                return {
+                    "assistant": "Maya",
+                    "answer": "Which router's config do you want? e.g. 'show me kincar's config'."
+                }
+
+            try:
+                section_result = get_config_section(target_router, question)
+                if section_result.get("success"):
+                    return {
+                        "assistant": "Maya",
+                        "router": target_router,
+                        "answer": f"{section_result.get('section')} ({section_result.get('line_count')} lines):\n\n{section_result.get('content')}"
+                    }
+                result = summarize_router_config(target_router)
+            except Exception as e:
+                result = {"success": False, "message": str(e)}
+
+            if result.get("success"):
+                return {
+                    "assistant": "Maya",
+                    "router": target_router,
+                    "answer": result.get("summary")
+                }
+            else:
+                return {
+                    "assistant": "Maya",
+                    "answer": result.get("message", f"Could not summarize config for {target_router}.")
+                }
+
+        # ------------------------------------------------------
+        # Traffic anomaly questions (spikes / silent interfaces)
+        # ------------------------------------------------------
+        if router_for_action and (
+            "spike" in question or "silent" in question
+            or "traffic anomaly" in question or "zero traffic" in question
+        ):
+
+            try:
+                findings = []
+                for iface in _distinct_interfaces(router_for_action):
+                    zero = _check_zero_traffic(router_for_action, iface)
+                    spike = _check_spike(router_for_action, iface)
+                    if zero.get("status") == "silent":
+                        findings.append(f"- [WARNING] '{iface}' is running but has shown zero traffic recently despite normally carrying it.")
+                    if spike.get("status") == "spiking":
+                        findings.append(f"- [WARNING] '{iface}' is at {spike.get('ratio')}x its baseline {spike.get('direction')} throughput.")
+            except Exception as e:
+                return {
+                    "assistant": "Maya",
+                    "router": router_for_action,
+                    "answer": f"Could not check traffic anomalies on {router_for_action}: {str(e)}"
+                }
+
+            if findings:
+                answer = f"Traffic anomalies on {router_for_action}:\n" + "\n".join(findings)
+            else:
+                answer = f"No traffic spikes or silent interfaces detected on {router_for_action} right now."
+
+            return {
+                "assistant": "Maya",
+                "router": router_for_action,
+                "answer": answer
+            }
+
+        # ------------------------------------------------------
+        # PPP anomaly questions (flapping / mass disconnect) —
+        # placed BEFORE the disconnect-action branch so phrases like
+        # "mass disconnects" aren't misread as a kill-session command.
+        # ------------------------------------------------------
+        if router_for_action and (
+            "flap" in question or "flapping" in question or "mass disconnect" in question
+        ):
+
+            try:
+                flapping = _check_flapping(router_for_action)
+                mass = _check_mass_disconnect(router_for_action)
+            except Exception as e:
+                return {
+                    "assistant": "Maya",
+                    "router": router_for_action,
+                    "answer": f"Could not check PPP anomalies on {router_for_action}: {str(e)}"
+                }
+
+            lines = []
+            for f in flapping:
+                lines.append(
+                    f"- [{f['severity']}] '{f['username']}' dropped {f['count']} times in the last 10 minutes."
+                )
+            if mass.get("status") == "mass_disconnect":
+                lines.append(
+                    f"- [CRITICAL] Mass disconnect: {mass['distinct_customers']} distinct customers dropped in the last 5 minutes."
+                )
+
+            if lines:
+                answer = f"PPP anomalies on {router_for_action}:\n" + "\n".join(lines)
+            else:
+                answer = f"No flapping customers or mass disconnects detected on {router_for_action} right now."
+
+            return {
+                "assistant": "Maya",
+                "router": router_for_action,
+                "answer": answer,
+                "raw": {"flapping": flapping, "mass_disconnect": mass}
+            }
 
         # ------------------------------------------------------
         # Explicit DISCONNECT action (kills active session only,
@@ -671,6 +908,95 @@ Question being asked: {original_question}
                 "assistant": "Maya",
                 "router": router_for_action,
                 "answer": "Recent incidents:\n" + "\n".join(lines)
+            }
+
+        # ------------------------------------------------------
+        # Explicit SECURITY POSTURE action
+        # ------------------------------------------------------
+        if router_for_action and ("posture" in question or "security" in question):
+
+            try:
+                posture_result = {
+                    "services": _check_exposed_services(router_for_action),
+                    "default_admin": _check_default_admin(router_for_action),
+                    "full_group_users": _check_full_group_users(router_for_action),
+                    "firewall_input": _check_firewall_input_chain(router_for_action),
+                    "routeros_version": _check_routeros_version(router_for_action),
+                }
+            except Exception as e:
+                return {
+                    "assistant": "Maya",
+                    "router": router_for_action,
+                    "answer": f"Could not run a posture scan on {router_for_action}: {str(e)}"
+                }
+
+            lines = []
+            for svc in posture_result.get("services", []):
+                if svc.get("status") == "exposed":
+                    lines.append(f"- [{svc.get('severity')}] Service '{svc['service']}' is exposed with no address restriction.")
+            da = posture_result.get("default_admin", {})
+            if da.get("status") == "present":
+                lines.append("- [WARNING] Default 'admin' account is still enabled.")
+            fg = posture_result.get("full_group_users", {})
+            if fg.get("status") == "excess":
+                lines.append(f"- [WARNING] Extra full-privilege accounts: {', '.join(fg.get('users', []))}.")
+            fi = posture_result.get("firewall_input", {})
+            if fi.get("status") == "open":
+                lines.append("- [CRITICAL] No catch-all drop rule on the firewall input chain.")
+            rv = posture_result.get("routeros_version", {})
+            if rv.get("status") == "outdated":
+                lines.append(f"- [WARNING] RouterOS update available: {rv.get('installed')} -> {rv.get('latest')}.")
+
+            if lines:
+                answer = f"Security posture findings for {router_for_action}:\n" + "\n".join(lines)
+            else:
+                answer = f"Security posture for {router_for_action} looks clean — no issues found across services, admin accounts, firewall input chain, or RouterOS version."
+
+            return {
+                "assistant": "Maya",
+                "router": router_for_action,
+                "answer": answer,
+                "raw": posture_result
+            }
+
+        # ------------------------------------------------------
+        # Router LOGS request — returns recent raw log lines,
+        # filtered to drop noisy 'maya-ai via api' polling entries
+        # from our own scheduled collectors.
+        # ------------------------------------------------------
+        if router_for_action and ("log" in question or "logs" in question):
+
+            try:
+                log_result = get_logs(router_for_action)
+            except Exception as e:
+                return {
+                    "assistant": "Maya",
+                    "router": router_for_action,
+                    "answer": f"Could not retrieve logs for {router_for_action}: {str(e)}"
+                }
+
+            all_logs = log_result.get("logs", [])
+
+            filtered = [
+                l for l in all_logs
+                if "maya-ai" not in (l.get("message") or "").lower()
+            ]
+
+            recent = filtered[-20:] if len(filtered) > 20 else filtered
+
+            if not recent:
+                answer = f"No recent log entries found for {router_for_action} (excluding routine API polling)."
+            else:
+                lines = [
+                    f"[{l.get('time')}] ({l.get('topics')}) {l.get('message')}"
+                    for l in recent
+                ]
+                answer = f"Recent log entries for {router_for_action}:\n" + "\n".join(lines)
+
+            return {
+                "assistant": "Maya",
+                "router": router_for_action,
+                "answer": answer
             }
 
         # ------------------------------------------------------
@@ -998,6 +1324,7 @@ Question being asked: {original_question}
                 "queue": summary["queues"][0] if summary["queues"] else None,
                 "lease": lease if lease else None,
             })
+            print(f"[DEBUG health_check] matched_query={matched_query!r} router={summary['router']!r} => {health_check}")
 
             ping_result = None
             if client_ip:
@@ -1121,9 +1448,29 @@ Question being asked: {original_question}
 
             answer = ask_llm(prompt)
 
+            # Guard rail: the LLM (a small local model) has been observed
+            # to occasionally contradict the deterministic health_check
+            # data it was given — e.g. claiming "not flapping" when the
+            # data clearly shows it is. Rather than trust the model's
+            # prose for the headline status, prepend a code-generated,
+            # guaranteed-accurate status line ahead of the LLM's narrative
+            # so the correct answer is always visible first regardless of
+            # what the model says underneath.
+            verified_status_line = (
+                f"Verified Status: {health_check['status']} "
+                f"(health score {health_check['health_score']}/100)"
+            )
+            if health_check["status"] == "FLAPPING":
+                verified_status_line += (
+                    f" — {health_check['checks'].get('stability', '')}. "
+                    "This is an instability issue, not a simple up/down state."
+                )
+            answer = f"{verified_status_line}\n\n{answer}"
+
             return {
                 "assistant": "Maya",
                 "customer_query": matched_query,
+                "verified_status": health_check["status"],
                 "answer": answer
             }
 

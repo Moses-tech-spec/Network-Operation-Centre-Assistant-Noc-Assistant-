@@ -1,3 +1,6 @@
+from app.services.incident_utils import get_flap_count
+
+
 def analyze_customer(customer):
 
     checks = {}
@@ -87,10 +90,31 @@ def analyze_customer(customer):
     else:
         recommendation = " ".join(steps)
 
+    flap_count = get_flap_count(customer["router"], customer["query"], window_minutes=60)
+    checks["stability"] = f"{flap_count} disconnect(s) in the last hour"
+
+    status = "ONLINE" if health == 100 else "PROBLEM"
+
+    if flap_count >= 3:
+        status = "FLAPPING"
+        issues.append(f"Unstable connection: {flap_count} disconnects in the last hour")
+        flap_text = (
+            f"Connection is flapping ({flap_count} disconnects in the last hour) rather than "
+            "simply up or down — treat this as an instability issue, not a single outage. "
+            "Prioritize: check signal strength/attenuation if this is a wireless or fiber link "
+            "with marginal power budget, check for a loose or degraded physical connection "
+            "(intermittent faults often show as flapping rather than a clean break), check if "
+            "the customer's CPE is power-cycling repeatedly (faulty PSU or overheating), and "
+            "check whether other customers on the same access point/OLT/switch are also "
+            "flapping at the same times (suggests a shared upstream cause, not this customer's "
+            "equipment)."
+        )
+        recommendation = flap_text + (" " + " ".join(steps) if steps else "")
+
     return {
         "customer": customer["query"],
         "router": customer["router"],
-        "status": "ONLINE" if health == 100 else "PROBLEM",
+        "status": status,
         "health_score": health,
         "checks": checks,
         "issues": issues,

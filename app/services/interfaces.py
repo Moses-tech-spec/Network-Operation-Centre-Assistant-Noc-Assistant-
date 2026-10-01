@@ -44,7 +44,51 @@ class InterfaceCollector:
                     (router,)
                 )
 
+                db.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS interface_traffic_history (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        router TEXT,
+                        interface_name TEXT,
+                        rx_rate INTEGER,
+                        tx_rate INTEGER,
+                        running INTEGER,
+                        collected_at TEXT
+                    )
+                    """
+                )
+
+                now_iso = datetime.now().isoformat()
+
                 for interface in interfaces:
+
+                    name = interface.get("name")
+                    rx_bytes = int(interface.get("rx-byte", 0))
+                    tx_bytes = int(interface.get("tx-byte", 0))
+
+                    rx_rate = 0
+                    tx_rate = 0
+
+                    prev = previous_counters.get(name)
+                    if prev:
+                        try:
+                            prev_time = datetime.fromisoformat(prev["collected_at"])
+                            time_delta = (datetime.now() - prev_time).total_seconds()
+                        except Exception:
+                            time_delta = 0
+
+                        if time_delta > 0:
+                            rx_delta = rx_bytes - int(prev["rx_bytes"] or 0)
+                            tx_delta = tx_bytes - int(prev["tx_bytes"] or 0)
+
+                            # Negative delta means the counter reset (reboot)
+                            # rather than a real throughput drop below zero --
+                            # treat this cycle's rate as unknown (0) instead of
+                            # computing a nonsensical negative value.
+                            if rx_delta >= 0:
+                                rx_rate = int((rx_delta * 8) / time_delta)
+                            if tx_delta >= 0:
+                                tx_rate = int((tx_delta * 8) / time_delta)
 
                     db.execute(
                         """
@@ -58,23 +102,54 @@ class InterfaceCollector:
                             tx_bytes,
                             rx_packets,
                             tx_packets,
+                            rx_rate,
+                            tx_rate,
                             collected_at
 
                         )
-                        VALUES(?,?,?,?,?,?,?,?,?)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?)
                         """,
                         (
                             router,
-                            interface.get("name"),
+                            name,
                             1 if interface.get("running") else 0,
                             1 if interface.get("disabled") else 0,
-                            int(interface.get("rx-byte", 0)),
-                            int(interface.get("tx-byte", 0)),
+                            rx_bytes,
+                            tx_bytes,
                             int(interface.get("rx-packet", 0)),
                             int(interface.get("tx-packet", 0)),
-                            datetime.now().isoformat()
+                            rx_rate,
+                            tx_rate,
+                            now_iso
                         )
                     )
+
+                    db.execute(
+                        """
+                        INSERT INTO interface_traffic_history(
+                            router, interface_name, rx_rate, tx_rate, running, collected_at
+                        )
+                        VALUES(?,?,?,?,?,?)
+                        """,
+                        (
+                            router,
+                            name,
+                            rx_rate,
+                            tx_rate,
+                            1 if interface.get("running") else 0,
+                            now_iso
+                        )
+                    )
+
+                # Keep only the last ~20 minutes of history per router to
+                # prevent unbounded growth (40 samples at 30s cadence).
+                db.execute(
+                    """
+                    DELETE FROM interface_traffic_history
+                    WHERE router=? AND collected_at < datetime('now', '-20 minutes')
+                    """,
+                    (router,)
+                )
 
                 for interface in interfaces:
 

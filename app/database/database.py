@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import threading
 
 # ==========================================================
 # Database Location
@@ -24,6 +25,8 @@ DB_PATH = os.path.join(
 class Database:
 
     def __init__(self):
+
+        self.lock = threading.Lock()
 
         self.conn = sqlite3.connect(
             DB_PATH,
@@ -50,13 +53,15 @@ class Database:
 
     def execute(self, sql, params=()):
 
-        cursor = self.conn.cursor()
+        with self.lock:
 
-        cursor.execute(sql, params)
+            cursor = self.conn.cursor()
 
-        self.conn.commit()
+            cursor.execute(sql, params)
 
-        return cursor
+            self.conn.commit()
+
+            return cursor
 
     # ======================================================
     # Execute Many
@@ -64,13 +69,15 @@ class Database:
 
     def executemany(self, sql, rows):
 
-        cursor = self.conn.cursor()
+        with self.lock:
 
-        cursor.executemany(sql, rows)
+            cursor = self.conn.cursor()
 
-        self.conn.commit()
+            cursor.executemany(sql, rows)
 
-        return cursor
+            self.conn.commit()
+
+            return cursor
 
     # ======================================================
     # Fetch One
@@ -78,17 +85,19 @@ class Database:
 
     def fetchone(self, sql, params=()):
 
-        cursor = self.conn.cursor()
+        with self.lock:
 
-        cursor.execute(sql, params)
+            cursor = self.conn.cursor()
 
-        row = cursor.fetchone()
+            cursor.execute(sql, params)
 
-        if row:
+            row = cursor.fetchone()
 
-            return dict(row)
+            if row:
 
-        return None
+                return dict(row)
+
+            return None
 
     # ======================================================
     # Fetch All
@@ -96,17 +105,19 @@ class Database:
 
     def fetchall(self, sql, params=()):
 
-        cursor = self.conn.cursor()
+        with self.lock:
 
-        cursor.execute(sql, params)
+            cursor = self.conn.cursor()
 
-        return [
+            cursor.execute(sql, params)
 
-            dict(row)
+            return [
 
-            for row in cursor.fetchall()
+                dict(row)
 
-        ]
+                for row in cursor.fetchall()
+
+            ]
 
     # ======================================================
     # Raw Cursor
@@ -115,6 +126,72 @@ class Database:
     def cursor(self):
 
         return self.conn.cursor()
+
+
+
+# ==========================================================
+# Integration Functions (GenieACS)
+# ==========================================================
+
+def create_integration_functions_table():
+
+    db.execute("""
+
+    CREATE TABLE IF NOT EXISTS integration_functions(
+
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        title TEXT UNIQUE,
+
+        description TEXT,
+
+        version TEXT,
+
+        status TEXT DEFAULT 'Active',
+
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+
+    )
+
+    """)
+
+
+# ==========================================================
+# Compatibility Chart (GenieACS)
+# ==========================================================
+
+def create_compatibility_chart_table():
+
+    db.execute("""
+
+    CREATE TABLE IF NOT EXISTS compatibility_chart(
+
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        integration_function_id INTEGER NOT NULL,
+
+        manufacturer TEXT NOT NULL,
+
+        model TEXT NOT NULL,
+
+        os TEXT,
+
+        method TEXT NOT NULL,
+
+        endpoint TEXT NOT NULL,
+
+        parameters TEXT,
+
+        status TEXT DEFAULT 'Active',
+
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+
+        FOREIGN KEY (integration_function_id)
+            REFERENCES integration_functions (id)
+
+    )
+
+    """)
 
 
 # ==========================================================
@@ -602,6 +679,12 @@ def initialize_database():
     print("Creating Router Inventory table...")
     create_router_inventory_table()
 
+    print("Creating Link Usage History table...")
+    create_link_usage_history_table()
+
+    print("Creating Queue Usage History table...")
+    create_queue_usage_history_table()
+
     print("Creating Router Health table...")
     create_router_health_table()
 
@@ -632,6 +715,12 @@ def initialize_database():
     print("Creating Customer Last Seen table...")
     create_customer_last_seen_table()
 
+    print("Creating Integration Functions table...")
+    create_integration_functions_table()
+
+    print("Creating Compatibility Chart table...")
+    create_compatibility_chart_table()
+
     print("Migrating interfaces table for traffic rate columns...")
     migrate_interfaces_rate_columns()
 
@@ -648,3 +737,53 @@ def initialize_database():
 # ==========================================================
 
 db = Database()
+
+
+# ==========================================================
+# Link Usage History (long retention, for graphing)
+# ==========================================================
+
+def create_link_usage_history_table():
+
+    db.execute("""
+
+    CREATE TABLE IF NOT EXISTS link_usage_history(
+
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router TEXT,
+        interface_name TEXT,
+        rx_rate INTEGER,
+        tx_rate INTEGER,
+        rx_bytes INTEGER,
+        tx_bytes INTEGER,
+        collected_at TEXT
+
+    )
+
+    """)
+
+
+# ==========================================================
+# Queue (Customer) Usage History (long retention, for graphing)
+# ==========================================================
+
+def create_queue_usage_history_table():
+
+    db.execute("""
+
+    CREATE TABLE IF NOT EXISTS queue_usage_history(
+
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        router TEXT,
+        queue_name TEXT,
+        target TEXT,
+        upload_rate INTEGER,
+        download_rate INTEGER,
+        upload_bytes INTEGER,
+        download_bytes INTEGER,
+        disabled INTEGER,
+        collected_at TEXT
+
+    )
+
+    """)

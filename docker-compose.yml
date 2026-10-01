@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
 
     ports:
-      - "3984:8000"
+      - "127.0.0.1:3984:8000"
 
     volumes:
       - .:/app
@@ -23,6 +23,17 @@ services:
       - KARIOKOR_PORT=${KARIOKOR_PORT}
       - KARIOKOR_USERNAME=${KARIOKOR_USERNAME}
       - KARIOKOR_PASSWORD=${KARIOKOR_PASSWORD}
+      - ALLSOPS_HOST=${ALLSOPS_HOST}
+      - ALLSOPS_PORT=${ALLSOPS_PORT}
+      - ALLSOPS_USERNAME=${ALLSOPS_USERNAME}
+      - ALLSOPS_PASSWORD=${ALLSOPS_PASSWORD}
+      - KINCAR_SSH_PORT=${KINCAR_SSH_PORT}
+      - KARIOKOR_SSH_PORT=${KARIOKOR_SSH_PORT}
+      - ALLSOPS_SSH_PORT=${ALLSOPS_SSH_PORT}
+      - GENIEACS_BASE_URL=${GENIEACS_BASE_URL}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_REPO=${GITHUB_REPO}
+      - JWT_SECRET=${JWT_SECRET}
 
     networks:
       - maya-network

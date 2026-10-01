@@ -23,3 +23,6 @@ uvloop==0.22.1
 watchfiles==1.2.0
 websockets==16.0
 slowapi
+paramiko
+bcrypt==4.2.0
+PyJWT==2.9.0

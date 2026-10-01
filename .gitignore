@@ -18,3 +18,8 @@ venv/
 # OS/editor cruft
 .DS_Store
 *.swp
+
+# Editor/manual backup files — not meant to be tracked
+*.bak
+*.bak2
+*.broken-bak

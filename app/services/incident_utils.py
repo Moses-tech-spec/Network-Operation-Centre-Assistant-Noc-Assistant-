@@ -67,3 +67,75 @@ def log_point_event(router, category, severity, title, description, source="Moni
         """,
         (router, severity, category, title, description, source)
     )
+
+
+def get_flap_count(router, username, window_minutes=60):
+    """
+    Counts how many times this customer has dropped (PPP_FAILURE events)
+    in the last `window_minutes`. A high count indicates a flapping/
+    unstable connection rather than a simple up/down snapshot state.
+
+    Note: matches on the description text logged by PPPoECollector
+    ("Customer 'X' disconnected from Y."), since username isn't stored
+    in its own column. Fragile against future description-wording
+    changes — if that text changes, this needs updating too.
+    """
+    row = db.fetchone(
+        """
+        SELECT COUNT(*) as cnt FROM incidents
+        WHERE router=?
+          AND category='PPP_FAILURE'
+          AND description LIKE ?
+          AND created_at >= datetime('now', ?)
+        """,
+        (router, f"%Customer '{username}'%disconnected%", f"-{window_minutes} minutes")
+    )
+    return row["cnt"] if row else 0
+
+
+def get_flap_count(router, username, window_minutes=60):
+    """
+    Counts how many times this customer has dropped (PPP_FAILURE events)
+    in the last `window_minutes`. A high count indicates a flapping/
+    unstable connection rather than a simple up/down snapshot state.
+
+    Note: matches on the description text logged by PPPoECollector
+    ("Customer 'X' disconnected from Y."), since username isn't stored
+    in its own column. Fragile against future description-wording
+    changes — if that text changes, this needs updating too.
+    """
+    row = db.fetchone(
+        """
+        SELECT COUNT(*) as cnt FROM incidents
+        WHERE router=?
+          AND category='PPP_FAILURE'
+          AND description LIKE ?
+          AND created_at >= datetime('now', ?)
+        """,
+        (router, f"%Customer '{username}'%disconnected%", f"-{window_minutes} minutes")
+    )
+    return row["cnt"] if row else 0
+
+
+def get_flap_count(router, username, window_minutes=60):
+    """
+    Counts how many times this customer has dropped (PPP_FAILURE events)
+    in the last `window_minutes`. A high count indicates a flapping/
+    unstable connection rather than a simple up/down snapshot state.
+
+    Note: matches on the description text logged by PPPoECollector
+    ("Customer 'X' disconnected from Y."), since username isn't stored
+    in its own column. Fragile against future description-wording
+    changes — if that text changes, this needs updating too.
+    """
+    row = db.fetchone(
+        """
+        SELECT COUNT(*) as cnt FROM incidents
+        WHERE router=?
+          AND category='PPP_FAILURE'
+          AND description LIKE ?
+          AND created_at >= datetime('now', ?)
+        """,
+        (router, f"%Customer '{username}'%disconnected%", f"-{window_minutes} minutes")
+    )
+    return row["cnt"] if row else 0

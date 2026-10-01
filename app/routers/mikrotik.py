@@ -322,7 +322,7 @@ def search_customer(router_name, query):
 
     for user in pppoe:
 
-        if q in safe_str(user["username"]).lower():
+        if q in safe_str(user["username"]).lower() or q in safe_str(user["address"]).lower():
 
             result["pppoe"] = user
 
@@ -1034,6 +1034,31 @@ def backup_router(router_name):
         "router": router_name,
         "backup_name": f"{backup_name}.backup",
         "message": f"Backup '{backup_name}.backup' created and saved on {router_name}'s local file storage. Note: this file is on the router itself, not yet downloaded to the API server — that requires FTP/SFTP access as a separate step if needed."
+    }
+
+
+def reboot_router(router_name):
+    """
+    Reboots the router via the RouterOS API. The connection drops
+    immediately once the command is sent (expected -- the router is
+    restarting), so we treat that as a normal outcome rather than
+    an error.
+    """
+
+    if router_name not in ROUTERS:
+        return {"success": False, "message": f"Router '{router_name}' not found."}
+
+    try:
+        connection = api(router_name)
+        list(connection("/system/reboot"))
+    except Exception:
+        # Connection drop is expected once the reboot command is sent.
+        pass
+
+    return {
+        "success": True,
+        "router": router_name,
+        "message": f"Reboot command sent to {router_name}. It will be unreachable for a minute or two while it restarts."
     }
 
 
